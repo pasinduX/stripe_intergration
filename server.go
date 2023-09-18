@@ -104,7 +104,6 @@ func handleCreateCheckoutSession(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, s.URL, http.StatusSeeOther)
 }
-
 func handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -146,15 +145,37 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if event.Type == "checkout.session.completed" {
-
 		fmt.Println("Checkout Session completed!")
 
-		sendConfirmationEmail(event.Data.Object)
+		var sessionObj stripe.CheckoutSession
+		if err := json.Unmarshal(event.Data.Raw, &sessionObj); err != nil {
+			fmt.Fprintln(os.Stderr, "Failed to parse session object:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
-		updatePaymentStatus(event.Data.Object)
+		fmt.Println("Payment Intent ID:", sessionObj.PaymentIntent.ID)
+		fmt.Println("Payment Status:", sessionObj.PaymentStatus)
+		fmt.Println("Payment Amount:", sessionObj.AmountTotal)
+		fmt.Println("Currency:", sessionObj.Currency)
+
+		confirmationEmailData := map[string]interface{}{
+			"paymentIntentID": sessionObj.PaymentIntent.ID,
+			"paymentStatus":   sessionObj.PaymentStatus,
+			"paymentAmount":   sessionObj.AmountTotal,
+			"currency":        sessionObj.Currency,
+		}
+
+		sendConfirmationEmail(confirmationEmailData)
+		updatePaymentStatus(confirmationEmailData)
+
+		writeJSON(w, map[string]interface{}{
+			"success": true,
+			"message": "Payment success",
+		})
+	} else {
+		fmt.Printf("Received event of type: %s\n", event.Type)
 	}
-
-	writeJSON(w, nil)
 }
 
 func sendConfirmationEmail(sessionObject map[string]interface{}) {
